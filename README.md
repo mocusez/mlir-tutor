@@ -1,6 +1,6 @@
 ## Installation Instructions
 
-This project uses [pixi](https://pixi.sh) for environment and build management.
+This project uses [pixi](https://pixi.sh) for environment and build management. MLIR, LLVM tools, `lit`, and the MLIR Python bindings are resolved from conda-forge through pixi; no extra PyPI package index is required.
 
 1. Install dependencies:
 
@@ -34,15 +34,15 @@ pixi run clean
 
 ## Installing Python Package
 
-The `tiny` Python DSL package is automatically installed as an editable dependency by `pixi install`. To verify:
+The `tiny` Python DSL package is automatically installed as an editable dependency by `pixi install`. To verify the package and MLIR Python bindings:
 
 ```bash
-pixi run python -c "import tiny; print('tiny package loaded')"
+pixi run python -c "from mlir.ir import Context; import tiny; print('tiny package and MLIR bindings loaded')"
 ```
 
 ## Running Python Examples
 
-1. Set the `TUTORIAL_OPT` environment variable to point to the built `tutorial-opt` binary:
+1. Set the `TUTORIAL_OPT` environment variable to point to the built `tutorial-opt` binary. Pixi sets this automatically for `pixi run` commands; for manual shells, use:
 
 ```bash
 export TUTORIAL_OPT=$PWD/build/tutorial/tutorial-opt

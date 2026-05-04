@@ -3,14 +3,16 @@ name = "mlir-tutor"
 version = "0.1.0"
 description = "MLIR Tutorial - PPoPP 2026"
 channels = ["conda-forge"]
-platforms = ["osx-arm64"]
+platforms = ["linux-64", "osx-arm64"]
 
 [dependencies]
-python = "3.14.*"
+python = "3.13.*"
 mlir = "22.*"
+mlir-python-bindings = "22.*"
 lit = ">=22"
 llvm-tools = "22.*"
 cmake = ">=3.24"
+clangxx = "22.*"
 make = "*"
 
 [activation]

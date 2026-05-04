@@ -1,7 +1,8 @@
 """DSL for TinyTile dialect (Chapter 3)."""
 
+from mlir.ir import Value, Type, Operation, Attribute, IndexType, F16Type, F64Type, FloatAttr, VectorType
 from ..ch1.dsl import Index, Ptr, F16Vector
-from ..compiler import IRBuilder, SSAValue, MLIRModule, TutorialOpt
+from ..compiler import MLIRModule, TutorialOpt
 
 
 class Layout:
@@ -17,14 +18,17 @@ class Layout:
 
 class Tile:
     """Wrapper for !tiny_tile.tile SSA values."""
-    _value: SSAValue
+    _value: Value
     _height: int
     _width: int
     _layout: Layout
 
     @staticmethod
-    def _wrap(value: SSAValue, height: int = None, width: int = None,
-              layout: Layout = None, *, template: "Tile" = None) -> "Tile":
+    def _wrap(value: Value, height: int = None, width: int = None, layout: Layout = None, *, template: "Tile" = None) -> "Tile":
+        """Wrap an MLIR value as a Tile.
+
+        Can be called with explicit dimensions or with a template tile to copy from.
+        """
         t = Tile()
         t._value = value
         if template is not None:
@@ -38,24 +42,26 @@ class Tile:
         return t
 
     @staticmethod
-    def _type_str(height: int, width: int, layout: Layout) -> str:
-        return (
+    def _get_type(height: int, width: int, layout: Layout) -> Type:
+        return Type.parse(
             f"!tiny_tile.tile<{height}x{width}, "
             f"#tiny_tile.layout<thread = [{layout.thread[0]}, {layout.thread[1]}], "
             f"vector_size = {layout.vector_size}>>"
         )
 
     def _binop(self, other: "Tile", kind: str) -> "Tile":
-        if (self._layout.thread != other._layout.thread or
-                self._layout.vector_size != other._layout.vector_size):
+        if self._layout.thread != other._layout.thread or \
+           self._layout.vector_size != other._layout.vector_size:
             raise ValueError("Operands must have the same layout")
-        result_type = Tile._type_str(self._height, self._width, self._layout)
-        b = IRBuilder.get()
-        result = b.op("tiny_tile.elementwise",
-                      operands=[self._value, other._value],
-                      result_types=[result_type],
-                      attributes={"kind": f"#tiny_tile<ew_kind {kind}>"})
-        return Tile._wrap(result, self._height, self._width, self._layout)
+        result_type = Tile._get_type(self._height, self._width, self._layout)
+        kind_attr = Attribute.parse(f"#tiny_tile<ew_kind {kind}>")
+        op = Operation.create(
+            "tiny_tile.elementwise",
+            results=[result_type],
+            operands=[self._value, other._value],
+            attributes={"kind": kind_attr}
+        )
+        return Tile._wrap(op.result, self._height, self._width, self._layout)
 
     def __add__(self, other): return self._binop(other, "add")
     def __sub__(self, other): return self._binop(other, "sub")
@@ -64,70 +70,93 @@ class Tile:
 
     @staticmethod
     def splat(value: float, height: int, width: int, layout: Layout) -> "Tile":
-        tile_type = Tile._type_str(height, width, layout)
-        val_str = f"{value:.6e}" if value != 0.0 else "0.000000e+00"
-        b = IRBuilder.get()
-        result = b.op("tiny_tile.splat",
-                      result_types=[tile_type],
-                      attributes={"splatValue": f"{val_str} : f64"})
-        return Tile._wrap(result, height, width, layout)
+        """Create a tile filled with a constant value (tiny_tile.splat)."""
+        tile_type = Tile._get_type(height, width, layout)
+        val_attr = FloatAttr.get(F64Type.get(), value)
+        op = Operation.create(
+            "tiny_tile.splat",
+            results=[tile_type],
+            attributes={"splatValue": val_attr},
+        )
+        return Tile._wrap(op.result, height, width, layout)
 
     @staticmethod
     def zeros(height: int, width: int, layout: Layout) -> "Tile":
+        """Create a zero-initialized tile."""
         return Tile.splat(0.0, height, width, layout)
 
     def sum(self) -> F16Vector:
-        b = IRBuilder.get()
-        result = b.op("tiny_tile.sum",
-                      operands=[self._value],
-                      result_types=["vector<1xf16>"])
-        return F16Vector._wrap(result)
+        """Sum tile to vector<1xf16> (tiny_tile.sum)."""
+        op = Operation.create(
+            "tiny_tile.sum",
+            results=[VectorType.get([1], F16Type.get())],
+            operands=[self._value],
+        )
+        return F16Vector._wrap(op.result)
 
 
 def load_tile(ptr: Ptr, row: Index, col: Index, stride: Index,
               height: int, width: int, layout: Layout) -> Tile:
-    tile_type = Tile._type_str(height, width, layout)
-    b = IRBuilder.get()
-    result = b.op("tiny_tile.load",
-                  operands=[ptr._value, row._value, col._value, stride._value],
-                  result_types=[tile_type])
-    return Tile._wrap(result, height, width, layout)
+    """Load a tile from memory (tiny_tile.load).
+
+    The layout specifies how elements are distributed across threads.
+    """
+    tile_type = Tile._get_type(height, width, layout)
+    op = Operation.create(
+        "tiny_tile.load",
+        results=[tile_type],
+        operands=[ptr._value, row._value, col._value, stride._value],
+    )
+    return Tile._wrap(op.result, height, width, layout)
 
 
 def store_tile(tile: Tile, ptr: Ptr, row: Index, col: Index, stride: Index):
-    b = IRBuilder.get()
-    b.op("tiny_tile.store",
-         operands=[tile._value, ptr._value, row._value,
-                   col._value, stride._value])
+    """Store a tile to memory (tiny_tile.store)."""
+    Operation.create(
+        "tiny_tile.store",
+        operands=[tile._value, ptr._value, row._value, col._value, stride._value],
+    )
 
+
+# --- GPU block/thread ID functions ---
 
 def block_id_x() -> Index:
-    b = IRBuilder.get()
-    result = b.op("gpu.block_id", result_types=["index"],
-                  attributes={"dimension": "#gpu<dim x>"})
-    return Index._wrap(result)
+    """Get the block ID in the x dimension (gpu.block_id x)."""
+    op = Operation.create(
+        "gpu.block_id",
+        results=[IndexType.get()],
+        attributes={"dimension": Attribute.parse("#gpu<dim x>")},
+    )
+    return Index._wrap(op.result)
 
 
 def block_id_y() -> Index:
-    b = IRBuilder.get()
-    result = b.op("gpu.block_id", result_types=["index"],
-                  attributes={"dimension": "#gpu<dim y>"})
-    return Index._wrap(result)
+    """Get the block ID in the y dimension (gpu.block_id y)."""
+    op = Operation.create(
+        "gpu.block_id",
+        results=[IndexType.get()],
+        attributes={"dimension": Attribute.parse("#gpu<dim y>")},
+    )
+    return Index._wrap(op.result)
 
 
 def block_id_z() -> Index:
-    b = IRBuilder.get()
-    result = b.op("gpu.block_id", result_types=["index"],
-                  attributes={"dimension": "#gpu<dim z>"})
-    return Index._wrap(result)
+    """Get the block ID in the z dimension (gpu.block_id z)."""
+    op = Operation.create(
+        "gpu.block_id",
+        results=[IndexType.get()],
+        attributes={"dimension": Attribute.parse("#gpu<dim z>")},
+    )
+    return Index._wrap(op.result)
 
 
 # --- Convenience functions ---
 
 def _get_type_map():
+    """Type map for ch3."""
     return {
-        Ptr: ("!tiny.ptr", Ptr),
-        Index: ("index", Index),
+        Ptr: (Ptr.get_type, Ptr),
+        Index: (IndexType.get, Index),
     }
 
 
@@ -150,6 +179,7 @@ def compile_and_print(fn):
     print("=== TinyTile Dialect ===")
     print(tile_ir)
 
+    # Lower tiny_loop first, then tiny_tile
     scf_ir = opt.run(tile_ir, ["tiny-loop-to-scf", "canonicalize", "cse"])
     print("=== After tiny-loop-to-scf ===")
     print(scf_ir)
