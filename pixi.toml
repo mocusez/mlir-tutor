@@ -1,0 +1,31 @@
+[workspace]
+name = "mlir-tutor"
+version = "0.1.0"
+description = "MLIR Tutorial - PPoPP 2026"
+channels = ["conda-forge"]
+platforms = ["osx-arm64"]
+
+[dependencies]
+python = "3.14.*"
+mlir = "22.*"
+lit = ">=22"
+llvm-tools = "22.*"
+cmake = ">=3.24"
+make = "*"
+
+[activation]
+scripts = ["scripts/activate.sh"]
+
+[activation.env]
+CC = "clang"
+CXX = "clang++"
+TUTORIAL_OPT = "$PWD/build/tutorial/tutorial-opt"
+
+[pypi-dependencies]
+tiny = { path = "./python", editable = true }
+
+[tasks]
+configure = "cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$CONDA_PREFIX -DLLVM_EXTERNAL_LIT=$CONDA_PREFIX/bin/lit"
+build = { cmd = "cmake --build build -j", depends-on = ["configure"] }
+test = { cmd = "cmake --build build --target check-tutorial", depends-on = ["build"] }
+clean = "rm -rf build"

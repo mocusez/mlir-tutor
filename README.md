@@ -1,57 +1,57 @@
 ## Installation Instructions
 
-1. Create a virtual environment and activate it:
+This project uses [pixi](https://pixi.sh) for environment and build management.
+
+1. Install dependencies:
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate
+pixi install
 ```
 
-2. Install required packages:
+2. Configure CMake:
 
 ```bash
-pip install -r requirements.txt
+pixi run configure
 ```
 
-3. Check if the installation was successful:
+3. Build:
 
 ```bash
-python3 -m mlir_wheel --root-dir
+pixi run build
 ```
 
-4. Configure CMake:
+4. Run tests:
 
 ```bash
-mkdir build
-cd build
-cmake ../ -DCMAKE_PREFIX_PATH=$(python -m mlir_wheel --root-dir) -DLLVM_EXTERNAL_LIT=$(which lit)
+pixi run test
 ```
 
-5. Build:
+To clean build artifacts:
 
 ```bash
-make -j
+pixi run clean
 ```
 
 ## Installing Python Package
 
-1. Install the Python DSL package (editable mode):
+The `tiny` Python DSL package is automatically installed as an editable dependency by `pixi install`. To verify:
 
 ```bash
-# From project root directory (not the build directory).
-pip install -e python/
+pixi run python -c "import tiny; print('tiny package loaded')"
 ```
 
-2. Set the `TUTORIAL_OPT` environment variable to point to the built `tutorial-opt` binary:
+## Running Python Examples
+
+1. Set the `TUTORIAL_OPT` environment variable to point to the built `tutorial-opt` binary:
 
 ```bash
 export TUTORIAL_OPT=$PWD/build/tutorial/tutorial-opt
 ```
 
-3. Run an example to verify:
+2. Run an example to verify:
 
 ```bash
-python tutorial/ch1-cpu-vector-dsl/square.py
+pixi run python tutorial/ch1-cpu-vector-dsl/square.py
 ```
 
 The examples will print the generated MLIR at each lowering stage.
